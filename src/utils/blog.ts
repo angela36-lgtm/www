@@ -2,14 +2,7 @@ import type { ComponentType } from 'react';
 import GithubSlugger from 'github-slugger';
 import authorsData from '../data/authors.json';
 import authorsOptOutData from '../data/authors-optout.json';
-
-export interface BlogPostFrontmatter {
-  title: string;
-  date: string;
-  author: string;
-  excerpt: string;
-  tags: string[];
-}
+import { getAllManifestPosts, getManifestPostBySlug } from './blog-manifest';
 
 export interface TocItem {
   id: string;
@@ -33,24 +26,16 @@ export interface Author {
 }
 
 export type AuthorProfile = Author & { id: string };
-export interface BlogPost {
-  slug: string;
-  title: string;
-  date: string;
-  author: string;
-  authorName: string;
-  authorId: string | null;
-  excerpt: string;
-  tags: string[];
-  readingTimeMin: number;
-  wordCount: number;
-  toc: TocItem[];
-  Component: ComponentType;
-}
 
 interface MDXModule {
   default: ComponentType;
-  frontmatter: BlogPostFrontmatter;
+  frontmatter: {
+    title?: string;
+    date?: string;
+    author?: string;
+    excerpt?: string;
+    tags?: unknown;
+  };
 }
 
 const COLLAPSED_NAME = 'Wraith Team';
@@ -111,51 +96,70 @@ function getRawContent(value: unknown): string {
 // Cache posts to avoid re-parsing on every call
 let cachedPosts: BlogPost[] | null = null;
 
+export interface BlogPost {
+  slug: string;
+  title: string;
+  date: string;
+  author: string;
+  authorName: string;
+  authorId: string | null;
+  excerpt: string;
+  tags: string[];
+  readingTimeMin: number;
+  wordCount: number;
+  toc: TocItem[];
+  Component: ComponentType;
+}
+
+function buildPost(slug: string): BlogPost | null {
+  const manifestEntry = getManifestPostBySlug(slug);
+  if (!manifestEntry) return null;
+
+  const moduleKey = `/src/content/blog/${slug}.mdx`;
+  const mod = modules[moduleKey];
+  const rawAuthor = manifestEntry.author;
+  const { name: authorName, linkId: authorId } = resolveAuthor(rawAuthor);
+
+  const rawContent = getRawContent(rawModules[moduleKey]);
+  const body = rawContent.replace(/^---[\s\S]*?^---/m, '');
+  const words = body.split(/\s+/).filter(Boolean).length;
+  const readingTimeMin = Math.max(1, Math.ceil(words / 200));
+
+  const slugger = new GithubSlugger();
+  const toc: TocItem[] = [];
+  const headingRegex = /^(##|###)\s+(.+)$/gm;
+  let match;
+  while ((match = headingRegex.exec(body)) !== null) {
+    if (!match[1] || !match[2]) continue;
+    const level = match[1].length;
+    const text = match[2].trim();
+    const cleanText = text.replace(/[*_`]/g, '');
+    const id = slugger.slug(cleanText);
+    toc.push({ id, text: cleanText, level });
+  }
+
+  return {
+    slug: manifestEntry.slug,
+    title: manifestEntry.title,
+    date: manifestEntry.date,
+    author: rawAuthor,
+    authorName,
+    authorId,
+    excerpt: manifestEntry.excerpt,
+    tags: manifestEntry.tags,
+    readingTimeMin,
+    wordCount: words,
+    toc,
+    Component: mod?.default as ComponentType,
+  };
+}
+
 export function getAllPosts(): BlogPost[] {
   if (cachedPosts) return cachedPosts;
 
-  cachedPosts = Object.entries(modules)
-    .map(([filepath, mod]) => {
-      const filename = filepath.split('/').pop() || '';
-      const slug = filename.replace(/\.mdx$/, '');
-      const frontmatter = mod.frontmatter || {};
-      const rawAuthor = frontmatter.author || '';
-      const { name: authorName, linkId: authorId } = resolveAuthor(rawAuthor);
-
-      const rawContent = getRawContent(rawModules[filepath]);
-      const body = rawContent.replace(/^---[\s\S]*?^---/m, '');
-      const words = body.split(/\s+/).filter(Boolean).length;
-      const readingTimeMin = Math.max(1, Math.ceil(words / 200));
-
-      const slugger = new GithubSlugger();
-      const toc: TocItem[] = [];
-      const headingRegex = /^(##|###)\s+(.+)$/gm;
-      let match;
-      while ((match = headingRegex.exec(body)) !== null) {
-        if (!match[1] || !match[2]) continue;
-        const level = match[1].length;
-        const text = match[2].trim();
-        // Remove markdown formatting like **, _ etc if any
-        const cleanText = text.replace(/[*_`]/g, '');
-        const id = slugger.slug(cleanText);
-        toc.push({ id, text: cleanText, level });
-      }
-
-      return {
-        slug,
-        title: frontmatter.title || slug,
-        date: frontmatter.date || '',
-        author: rawAuthor,
-        authorName,
-        authorId,
-        excerpt: frontmatter.excerpt || '',
-        tags: Array.isArray(frontmatter.tags) ? frontmatter.tags : [],
-        readingTimeMin,
-        wordCount: words,
-        toc,
-        Component: mod.default,
-      };
-    })
+  cachedPosts = getAllManifestPosts()
+    .map((post) => buildPost(post.slug))
+    .filter((post): post is BlogPost => post !== null)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return cachedPosts;
@@ -170,26 +174,11 @@ export function getPostsByAuthor(id: string): BlogPost[] {
   return getAllPosts().filter((p) => p.author === id && p.authorId === id);
 }
 
-export function getAllTags(): string[] {
-  const posts = getAllPosts();
-  const tagSet = new Set<string>();
-  posts.forEach((post) => {
-    post.tags.forEach((tag) => tagSet.add(tag));
-  });
-  return Array.from(tagSet).sort();
-}
-
-export function slugifyTag(tag: string): string {
-  return String(tag)
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-export function getTagFromSlug(slug: string): string | undefined {
-  return getAllTags().find((tag) => slugifyTag(tag) === slug);
-}
+export {
+  slugifyTag,
+  getAllManifestTags as getAllTags,
+  getManifestTagFromSlug as getTagFromSlug,
+} from './blog-manifest';
 
 export function getPostsByTag(tag: string): BlogPost[] {
   return getAllPosts().filter((post) => post.tags.includes(tag));

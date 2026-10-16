@@ -1,46 +1,88 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { load as parseYaml } from 'js-yaml';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const rootDir = path.resolve(__dirname, '..');
-const contentDir = path.join(rootDir, 'src', 'content', 'blog');
-const blogPostsPath = path.join(rootDir, 'src', 'data', 'blog-posts.json');
-const outputPath = path.join(rootDir, 'src', 'data', 'blog-manifest.json');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const rootDir = join(__dirname, '..');
+const contentDir = join(rootDir, 'src', 'content', 'blog');
+const outputPath = join(rootDir, 'src', 'data', 'blog-manifest.json');
+const siteUrl = 'https://usewraith.xyz';
 
-function parseFrontmatter(source) {
-  const frontmatterMatch = source.match(/^---\n([\s\S]*?)\n---/);
+class ManifestError extends Error {
+  constructor(file, field, message) {
+    super(`${file}${field ? ` [${field}]` : ''}: ${message}`);
+    this.name = 'ManifestError';
+    this.file = file;
+    this.field = field;
+  }
+}
+
+function requireField(data, key, file) {
+  if (!(key in data) || data[key] === null || data[key] === undefined) {
+    throw new ManifestError(file, key, `required field "${key}" is missing`);
+  }
+  return data[key];
+}
+
+function requireNonEmptyString(value, key, file) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new ManifestError(file, key, `field "${key}" must be a non-empty string`);
+  }
+  return value.trim();
+}
+
+function requireIsoDate(value, key, file) {
+  const str = requireNonEmptyString(value, key, file);
+  const parsed = new Date(str);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new ManifestError(file, key, `field "${key}" is not a valid date: ${str}`);
+  }
+  return str;
+}
+
+function requireAuthor(value, key, file) {
+  return requireNonEmptyString(value, key, file);
+}
+
+function requireTags(value, key, file) {
+  if (!Array.isArray(value)) {
+    throw new ManifestError(file, key, `field "${key}" must be an array of strings`);
+  }
+  const tags = value.filter((t) => typeof t === 'string');
+  if (tags.length !== value.length) {
+    throw new ManifestError(file, key, `field "${key}" must contain only strings`);
+  }
+  const trimmed = tags.map((t) => t.trim()).filter(Boolean);
+  if (trimmed.length === 0) {
+    throw new ManifestError(file, key, `field "${key}" must contain at least one tag`);
+  }
+  return trimmed;
+}
+
+export function parseFrontmatter(source, file) {
+  const frontmatterMatch = source.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!frontmatterMatch) {
-    return { data: {}, content: source };
+    throw new ManifestError(file, null, 'missing frontmatter block (expected --- delimiters)');
   }
 
-  const frontmatterContent = frontmatterMatch[1];
+  const yamlText = frontmatterMatch[1];
   const content = source.slice(frontmatterMatch[0].length);
 
-  const data = {};
-  const lines = frontmatterContent.split('\n');
-  for (const line of lines) {
-    const colonIndex = line.indexOf(':');
-    if (colonIndex === -1) continue;
-    const key = line.slice(0, colonIndex).trim();
-    let value = line.slice(colonIndex + 1).trim();
-
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    } else if (value.startsWith('[') && value.endsWith(']')) {
-      const items = value
-        .slice(1, -1)
-        .split(',')
-        .map((s) => s.trim().replace(/^["']|["']$/g, ''));
-      value = items;
+  let data;
+  try {
+    const parsed = parseYaml(yamlText);
+    if (parsed === null || parsed === undefined) {
+      data = {};
+    } else if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new ManifestError(file, null, 'frontmatter must be a YAML mapping (object)');
+    } else {
+      data = parsed;
     }
-
-    if (key) {
-      data[key] = value;
-    }
+  } catch (error) {
+    if (error instanceof ManifestError) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new ManifestError(file, null, `malformed YAML frontmatter: ${message}`);
   }
 
   return { data, content };
@@ -88,7 +130,7 @@ function extractFirstParagraph(content) {
 
   return paragraph
     .slice(0, 160)
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)$/g, '$1')
     .replace(/[*_]/g, '');
 }
 
@@ -96,78 +138,97 @@ function getSlug(filename) {
   return filename.replace(/\.mdx?$/, '');
 }
 
-function processMdxFile(filePath, filename) {
-  const source = fs.readFileSync(filePath, 'utf8');
-  const { data, content } = parseFrontmatter(source);
+export function processMdxFile(filePath, filename) {
+  const file = `src/content/blog/${filename}`;
+  const source = readFileSync(filePath, 'utf8');
+  const { data, content } = parseFrontmatter(source, file);
+
   const slug = getSlug(filename);
+
+  const title = requireNonEmptyString(requireField(data, 'title', file), 'title', file);
+  const date = requireIsoDate(requireField(data, 'date', file), 'date', file);
+  const author = requireAuthor(requireField(data, 'author', file), 'author', file);
+  const excerpt = requireNonEmptyString(requireField(data, 'excerpt', file), 'excerpt', file);
+  const tags = requireTags(requireField(data, 'tags', file), 'tags', file);
 
   return {
     slug,
-    title: data.title || slug,
-    excerpt: data.excerpt || extractFirstParagraph(content),
-    date: data.date || data.publishedAt || '2026-01-01',
-    author: data.author || 'Wraith Team',
-    url: `https://usewraith.xyz/blog/${slug}`,
+    title,
+    excerpt,
+    date,
+    author,
+    tags,
+    url: `${siteUrl}/blog/${slug}`,
+    publishedAt: new Date(date).toISOString(),
   };
 }
 
-function loadBlogPostsJson() {
-  if (!fs.existsSync(blogPostsPath)) return [];
-  try {
-    const posts = JSON.parse(fs.readFileSync(blogPostsPath, 'utf8'));
-    return posts.map((post) => ({
-      slug: post.slug,
-      title: post.title,
-      excerpt: post.excerpt,
-      date: post.publishedAt || '2026-01-01',
-      author: post.author || 'Wraith Team',
-      url: `https://usewraith.xyz/blog/${post.slug}`,
-    }));
-  } catch {
-    return [];
+export function buildManifest(inputDir) {
+  const errors = [];
+  const files = readdirSync(inputDir)
+    .filter((f) => f.endsWith('.mdx') || f.endsWith('.md'))
+    .sort();
+
+  const entries = files.map((filename) => {
+    const filePath = join(inputDir, filename);
+    try {
+      return processMdxFile(filePath, filename);
+    } catch (error) {
+      if (error instanceof ManifestError) {
+        errors.push(error.message);
+      } else {
+        errors.push(
+          `src/content/blog/${filename}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      return null;
+    }
+  });
+
+  if (errors.length > 0) {
+    throw new Error(errors.join('\n'));
   }
+
+  const validEntries = entries.filter(Boolean);
+
+  const slugs = new Set();
+  for (const entry of validEntries) {
+    if (slugs.has(entry.slug)) {
+      throw new Error(`duplicate slug "${entry.slug}"`);
+    }
+    slugs.add(entry.slug);
+  }
+
+  validEntries.sort(
+    (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
+  );
+
+  return validEntries;
 }
 
 function main() {
-  if (!fs.existsSync(contentDir)) {
-    console.log('No blog content directory found');
-    fs.writeFileSync(outputPath, JSON.stringify([], null, 2) + '\n');
+  if (!existsSync(contentDir)) {
+    writeFileSync(outputPath, JSON.stringify([], null, 2) + '\n');
+    console.log('No blog content directory found; wrote empty manifest.');
     return;
   }
 
-  const files = fs.readdirSync(contentDir).filter((f) => f.endsWith('.mdx') || f.endsWith('.md'));
-
-  const mdxEntries = files
-    .map((filename) => {
-      const filePath = path.join(contentDir, filename);
-      try {
-        return processMdxFile(filePath, filename);
-      } catch (error) {
-        console.warn(`Error processing ${filename}:`, error.message);
-        return null;
-      }
-    })
-    .filter(Boolean);
-
-  const jsonEntries = loadBlogPostsJson();
-
-  // Merge: prefer MDX entries, fill in missing slugs from JSON
-  const allSlugs = new Set([...mdxEntries.map((e) => e.slug), ...jsonEntries.map((e) => e.slug)]);
-  const entries = [];
-  for (const slug of allSlugs) {
-    const mdxEntry = mdxEntries.find((e) => e.slug === slug);
-    const jsonEntry = jsonEntries.find((e) => e.slug === slug);
-    if (mdxEntry) {
-      entries.push(mdxEntry);
-    } else if (jsonEntry) {
-      entries.push(jsonEntry);
+  let validEntries;
+  try {
+    validEntries = buildManifest(contentDir);
+  } catch (error) {
+    const errors = error instanceof Error ? error.message.split('\n') : [String(error)];
+    for (const err of errors) {
+      if (err.trim()) console.error(`  ✗  ${err.trim()}`);
     }
+    console.error(`\n🚨  Blog manifest generation failed — ${errors.length} error(s).`);
+    process.exit(1);
   }
 
-  entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-  fs.writeFileSync(outputPath, JSON.stringify(entries, null, 2) + '\n');
-  console.log(`Generated blog-manifest.json with ${entries.length} posts`);
+  writeFileSync(outputPath, JSON.stringify(validEntries, null, 2) + '\n');
+  console.log(`Generated blog-manifest.json with ${validEntries.length} posts`);
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}
