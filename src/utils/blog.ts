@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 import GithubSlugger from 'github-slugger';
 import authorsData from '../data/authors.json';
 import authorsOptOutData from '../data/authors-optout.json';
+import blogManifest from '../data/blog-manifest.json';
 
 export interface BlogPostFrontmatter {
   title: string;
@@ -108,57 +109,68 @@ function getRawContent(value: unknown): string {
   return '';
 }
 
+interface ManifestEntry {
+  slug: string;
+  title: string;
+  date: string;
+  author: string;
+  excerpt: string;
+  tags: string[];
+  url: string;
+}
+
+const manifest = (blogManifest as unknown as ManifestEntry[]).sort(
+  (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+);
+
 // Cache posts to avoid re-parsing on every call
 let cachedPosts: BlogPost[] | null = null;
 
 export function getAllPosts(): BlogPost[] {
   if (cachedPosts) return cachedPosts;
 
-  cachedPosts = Object.entries(modules)
-    .map(([filepath, mod]) => {
-      const filename = filepath.split('/').pop() || '';
-      const slug = filename.replace(/\.mdx$/, '');
-      const frontmatter = mod.frontmatter || {};
-      const rawAuthor = frontmatter.author || '';
-      const { name: authorName, linkId: authorId } = resolveAuthor(rawAuthor);
+  cachedPosts = manifest.map((entry): BlogPost => {
+    const filename = `/src/content/blog/${entry.slug}.mdx`;
+    const mod = modules[filename];
+    const Component = mod?.default;
 
-      const rawContent = getRawContent(rawModules[filepath]);
-      const body = rawContent.replace(/^---[\s\S]*?^---/m, '');
-      const words = body.split(/\s+/).filter(Boolean).length;
-      const readingTimeMin = Math.max(1, Math.ceil(words / 200));
+    const rawContent = getRawContent(rawModules[filename]);
+    const body = rawContent.replace(/^---[\s\S]*?^---/m, '');
+    const words = body.split(/\s+/).filter(Boolean).length;
+    const readingTimeMin = Math.max(1, Math.ceil(words / 200));
 
-      const slugger = new GithubSlugger();
-      const toc: TocItem[] = [];
-      const headingRegex = /^(##|###)\s+(.+)$/gm;
-      let match;
-      while ((match = headingRegex.exec(body)) !== null) {
-        if (!match[1] || !match[2]) continue;
-        const level = match[1].length;
-        const text = match[2].trim();
-        // Remove markdown formatting like **, _ etc if any
-        const cleanText = text.replace(/[*_`]/g, '');
-        const id = slugger.slug(cleanText);
-        toc.push({ id, text: cleanText, level });
-      }
+    const slugger = new GithubSlugger();
+    const toc: TocItem[] = [];
+    const headingRegex = /^(##|###)\s+(.+)$/gm;
+    let match;
+    while ((match = headingRegex.exec(body)) !== null) {
+      if (!match[1] || !match[2]) continue;
+      const level = match[1].length;
+      const text = match[2].trim();
+      const cleanText = text.replace(/[*_`]/g, '');
+      const id = slugger.slug(cleanText);
+      toc.push({ id, text: cleanText, level });
+    }
 
-      return {
-        slug,
-        title: frontmatter.title || slug,
-        date: frontmatter.date || '',
-        author: rawAuthor,
-        authorName,
-        authorId,
-        excerpt: frontmatter.excerpt || '',
-        tags: Array.isArray(frontmatter.tags) ? frontmatter.tags : [],
-        readingTimeMin,
-        wordCount: words,
-        toc,
-        Component: mod.default,
-      };
-    })
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const { name: authorName, linkId: authorId } = resolveAuthor(entry.author);
 
-  return cachedPosts;
+    return {
+      slug: entry.slug,
+      title: entry.title,
+      date: entry.date,
+      author: entry.author,
+      authorName,
+      authorId,
+      excerpt: entry.excerpt,
+      tags: entry.tags,
+      readingTimeMin,
+      wordCount: words,
+      toc,
+      Component: Component as ComponentType,
+    };
+  });
+
+  return cachedPosts ?? [];
 }
 
 export function getPostBySlug(slug: string): BlogPost | undefined {

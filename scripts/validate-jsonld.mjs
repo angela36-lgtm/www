@@ -1,6 +1,7 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { loadManifest } from './blog-manifest.mjs';
 import {
   serializeJsonLd,
   organization,
@@ -178,55 +179,30 @@ blobs.push({
   blob: faqPage(faq.entries.map((e) => ({ question: e.question, answer: e.answer }))),
 });
 
-// 4. Blog Articles + breadcrumbs (parse MDX frontmatter)
-function parseFrontmatter(content) {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
-  if (!match) return {};
-  const data = {};
-  for (const line of match[1].split('\n')) {
-    const m = line.match(/^(\w+):\s*(.*)$/);
-    if (!m) continue;
-    const [, key, raw] = m;
-    const value = raw.trim();
-    if (value.startsWith('[') && value.endsWith(']')) {
-      data[key] = value
-        .slice(1, -1)
-        .split(',')
-        .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
-        .filter(Boolean);
-    } else {
-      data[key] = value.replace(/^['"]|['"]$/g, '');
-    }
-  }
-  return data;
-}
-
-const blogDir = resolve(root, 'src/content/blog');
-readdirSync(blogDir)
-  .filter((file) => file.endsWith('.mdx'))
-  .forEach((file) => {
-    const fm = parseFrontmatter(readFileSync(resolve(blogDir, file), 'utf8'));
-    const slug = file.replace(/\.mdx$/, '');
-    const url = `${SITE_URL}/blog/${slug}`;
-    blobs.push({
-      label: `Article (blog:${slug})`,
-      blob: article({
-        headline: fm.title || slug,
-        description: fm.excerpt || '',
-        datePublished: fm.date || '',
-        authorName: fm.author || 'Wraith Team',
-        url,
-      }),
-    });
-    blobs.push({
-      label: `BreadcrumbList (blog:${slug})`,
-      blob: breadcrumbList([
-        { name: 'Home', url: SITE_URL },
-        { name: 'Blog', url: `${SITE_URL}/blog` },
-        { name: fm.title || slug, url },
-      ]),
-    });
+// 4. Blog Articles + breadcrumbs (from the shared validated manifest)
+const blogManifest = loadManifest();
+for (const post of blogManifest) {
+  const slug = post.slug;
+  const url = `${SITE_URL}/blog/${slug}`;
+  blobs.push({
+    label: `Article (blog:${slug})`,
+    blob: article({
+      headline: post.title || slug,
+      description: post.excerpt || '',
+      datePublished: post.date || '',
+      authorName: post.author || 'Wraith Team',
+      url,
+    }),
   });
+  blobs.push({
+    label: `BreadcrumbList (blog:${slug})`,
+    blob: breadcrumbList([
+      { name: 'Home', url: SITE_URL },
+      { name: 'Blog', url: `${SITE_URL}/blog` },
+      { name: post.title || slug, url },
+    ]),
+  });
+}
 
 // 5. HowTo (from grant wave data)
 const wave = JSON.parse(readFileSync(resolve(root, 'src/data/wave.json'), 'utf8')).currentWave;
