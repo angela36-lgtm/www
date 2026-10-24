@@ -45,6 +45,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
+      - name: Type-check serverless functions
+        run: pnpm typecheck:serverless
+
       - name: Smoke test the serverless routes
         run: pnpm test:smoke
 
