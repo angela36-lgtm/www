@@ -63,7 +63,7 @@ describe('keyboard navigation', () => {
     window.history.replaceState({}, '', '/use-cases');
     render(<App />);
 
-    const links = screen.getAllByRole('link');
+    const links = await screen.findAllByRole('link');
     expect(links.length).toBeGreaterThan(0);
   });
 });

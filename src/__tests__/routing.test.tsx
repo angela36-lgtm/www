@@ -13,12 +13,16 @@
  */
 
 import { act, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { Suspense, type ComponentType } from 'react';
 import i18n from '../i18n';
 import { useLocalePath, hasLocalizedRoute } from '../hooks/useLocalePath';
 import { renderHook } from '@testing-library/react';
 import { ThemeProvider } from '../context/ThemeContext';
+import { RouteErrorBoundary } from '../components/RouteErrorBoundary';
+import { LazyRoute } from '../components/LazyRoute';
+import { RouteLoading } from '../components/RouteLoading';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -668,6 +672,175 @@ describe('Locale-prefixed blog author/tag routes', () => {
     // LocaleScope sets 'pt'; i18n language should remain 'pt'
     await waitFor(() => {
       expect(i18n.language).toBe('pt');
+    });
+  });
+
+  // ─── Lazy route loading and error recovery ──────────────────────────────
+
+  function MockPage() {
+    return <div data-testid="mock-page">mock page</div>;
+  }
+
+  function renderLazyRoute({
+    loader,
+    initialEntries = ['/test'],
+  }: {
+    loader: () => Promise<{ default: ComponentType }>;
+    initialEntries?: string[];
+  }) {
+    return render(
+      <ThemeProvider>
+        <RouteErrorBoundary>
+          <Suspense fallback={<RouteLoading />}>
+            <MemoryRouter initialEntries={initialEntries}>
+              <Routes>
+                <Route path="/test" element={<LazyRoute loader={loader} />} />
+              </Routes>
+            </MemoryRouter>
+          </Suspense>
+        </RouteErrorBoundary>
+      </ThemeProvider>,
+    );
+  }
+
+  describe('Lazy route loading and error recovery', () => {
+    afterEach(async () => {
+      await i18n.changeLanguage('en');
+      vi.restoreAllMocks();
+    });
+
+    it('displays the loading state while a slow dynamic import is in flight', async () => {
+      let resolve!: (value: { default: ComponentType }) => void;
+      const promise = new Promise<{ default: ComponentType }>((res) => {
+        resolve = res;
+      });
+      const loader = () => promise;
+
+      renderLazyRoute({ loader });
+
+      // Loading state appears immediately while the import is in flight.
+      expect(screen.getByRole('status', { name: /loading page/i })).toBeInTheDocument();
+      expect(screen.queryByTestId('mock-page')).not.toBeInTheDocument();
+
+      act(() => {
+        resolve({ default: MockPage });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-page')).toBeInTheDocument();
+        expect(screen.queryByRole('status', { name: /loading page/i })).not.toBeInTheDocument();
+      });
+    });
+
+    it('keeps the application shell intact while a route loads', async () => {
+      let resolve!: (value: { default: ComponentType }) => void;
+      const promise = new Promise<{ default: ComponentType }>((res) => {
+        resolve = res;
+      });
+      const loader = () => promise;
+
+      const { container } = renderLazyRoute({ loader });
+
+      // The error boundary / Suspense shell stays mounted during loading.
+      expect(container).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: /loading page/i })).toBeInTheDocument();
+
+      act(() => {
+        resolve({ default: MockPage });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-page')).toBeInTheDocument();
+      });
+    });
+
+    it('renders a successfully loaded route normally', async () => {
+      renderLazyRoute({
+        loader: () => Promise.resolve({ default: MockPage }),
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-page')).toBeInTheDocument();
+      });
+    });
+
+    it('displays the error recovery UI when a dynamic import fails', async () => {
+      const loader = () => Promise.reject(new Error('chunk load failed'));
+
+      renderLazyRoute({ loader });
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /failed to load page/i })).toBeInTheDocument();
+      });
+      expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      expect(screen.queryByTestId('mock-page')).not.toBeInTheDocument();
+    });
+
+    it('loads the route after retrying a transient failure', async () => {
+      let attempts = 0;
+      const loader = () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return Promise.reject(new Error('transient failure'));
+        }
+        return Promise.resolve({ default: MockPage });
+      };
+
+      renderLazyRoute({ loader });
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      });
+
+      act(() => {
+        screen.getByRole('button', { name: /retry/i }).click();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-page')).toBeInTheDocument();
+      });
+      expect(attempts).toBe(2);
+    });
+
+    it('does not loop endlessly when a route persistently fails to load', async () => {
+      let attempts = 0;
+      const loader = () => {
+        attempts += 1;
+        return Promise.reject(new Error('persistent failure'));
+      };
+
+      renderLazyRoute({ loader });
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      });
+      expect(attempts).toBe(1);
+
+      // Retry once — still fails, error UI returns (no automatic reload between clicks).
+      act(() => {
+        screen.getByRole('button', { name: /retry/i }).click();
+      });
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      });
+      expect(attempts).toBe(2);
+
+      // Confirm no automatic reload happens without a user click.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(attempts).toBe(2);
+
+      // Retry again — still fails.
+      act(() => {
+        screen.getByRole('button', { name: /retry/i }).click();
+      });
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      });
+      expect(attempts).toBe(3);
+
+      // The error UI remains; the route is not reloaded automatically.
+      expect(screen.getByRole('heading', { name: /failed to load page/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
     });
   });
 });

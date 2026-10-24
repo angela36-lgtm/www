@@ -8,6 +8,9 @@ import Layout from './components/Layout';
 import TrustStrip from './components/TrustStrip';
 import PartnerStrip from './components/PartnerStrip';
 import { ThemeProvider } from './context/ThemeContext';
+import { RouteErrorBoundary } from './components/RouteErrorBoundary';
+import { LazyRoute } from './components/LazyRoute';
+import { RouteLoading } from './components/RouteLoading';
 import { usePageSeo } from './utils/seo';
 import { changeLocale, type Locale } from './i18n';
 
@@ -25,27 +28,27 @@ const CtaStrip = lazy(() => import('./components/CtaStrip'));
 const Footer = lazy(() => import('./components/Footer'));
 
 // Lazy load pages
-const Faq = lazy(() => import('./pages/Faq'));
-const Privacy = lazy(() => import('./pages/Privacy'));
-const Newsletter = lazy(() => import('./pages/Newsletter'));
-const UseCases = lazy(() => import('./pages/UseCases'));
-const CostCalculatorPage = lazy(() => import('./pages/CostCalculatorPage'));
-const Stellar = lazy(() => import('./pages/Stellar'));
-const Roadmap = lazy(() => import('./pages/Roadmap'));
-const Grants = lazy(() => import('./pages/Grants'));
-const CaseStudies = lazy(() => import('./pages/CaseStudies'));
-const Careers = lazy(() => import('./pages/Careers'));
-const About = lazy(() => import('./pages/About'));
-const Governance = lazy(() => import('./pages/Governance'));
-const Vitals = lazy(() => import('./pages/Vitals'));
-const Security = lazy(() => import('./pages/Security'));
-const ThreatModel = lazy(() => import('./pages/ThreatModel'));
-const Status = lazy(() => import('./pages/Status'));
-const NotFound = lazy(() => import('./pages/NotFound'));
-const Contributors = lazy(() => import('./pages/Contributors'));
-const Blog = lazy(() => import('./pages/Blog'));
-const Ecosystem = lazy(() => import('./pages/Ecosystem'));
-const ChainsPage = lazy(() => import('./pages/Chains'));
+const loadFaq = () => import('./pages/Faq');
+const loadPrivacy = () => import('./pages/Privacy');
+const loadNewsletter = () => import('./pages/Newsletter');
+const loadUseCases = () => import('./pages/UseCases');
+const loadCostCalculatorPage = () => import('./pages/CostCalculatorPage');
+const loadStellar = () => import('./pages/Stellar');
+const loadRoadmap = () => import('./pages/Roadmap');
+const loadGrants = () => import('./pages/Grants');
+const loadCaseStudies = () => import('./pages/CaseStudies');
+const loadCareers = () => import('./pages/Careers');
+const loadAbout = () => import('./pages/About');
+const loadGovernance = () => import('./pages/Governance');
+const loadVitals = () => import('./pages/Vitals');
+const loadSecurity = () => import('./pages/Security');
+const loadThreatModel = () => import('./pages/ThreatModel');
+const loadStatus = () => import('./pages/Status');
+const loadNotFound = () => import('./pages/NotFound');
+const loadContributors = () => import('./pages/Contributors');
+const loadBlog = () => import('./pages/Blog');
+const loadEcosystem = () => import('./pages/Ecosystem');
+const loadChainsPage = () => import('./pages/Chains');
 
 /**
  * Sets the active locale based on the URL prefix, then renders `children`.
@@ -126,245 +129,250 @@ export default function App() {
     <ThemeProvider>
       <BrowserRouter>
         <LocaleSync />
-        <Suspense fallback={null}>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/faq" element={<Faq />} />
-            <Route path="/privacy" element={<Privacy />} />
-            <Route path="/newsletter" element={<Newsletter />} />
-            <Route path="/use-cases" element={<UseCases />} />
-            <Route path="/use-cases/calculator" element={<CostCalculatorPage />} />
-            <Route path="/roadmap" element={<Roadmap />} />
-            <Route path="/case-studies" element={<CaseStudies />} />
-            <Route path="/case-studies/:slug" element={<CaseStudies />} />
-            <Route
-              path="/ecosystem"
-              element={
-                <Layout>
-                  <Ecosystem />
-                </Layout>
-              }
-            />
-            <Route path="/vitals" element={<Vitals />} />
-            <Route
-              path="/security"
-              element={
-                <Layout>
-                  <Security />
-                </Layout>
-              }
-            />
-            <Route
-              path="/threat-model"
-              element={
-                <Layout>
-                  <ThreatModel />
-                </Layout>
-              }
-            />
-            {/* Status page route */}
-            <Route
-              path="/status"
-              element={
-                <Layout>
-                  <Status />
-                </Layout>
-              }
-            />
-            {/* Wrap Stellar with Layout */}
-            <Route
-              path="/stellar"
-              element={
-                <Layout>
-                  <Stellar />
-                </Layout>
-              }
-            />
-            <Route
-              path="/careers"
-              element={
-                <Layout>
-                  <Careers />
-                </Layout>
-              }
-            />
-            <Route
-              path="/grants"
-              element={
-                <Layout>
-                  <Grants />
-                </Layout>
-              }
-            />
-            <Route
-              path="/about"
-              element={
-                <Layout>
-                  <About />
-                </Layout>
-              }
-            />
-            <Route
-              path="/governance"
-              element={
-                <Layout>
-                  <Governance />
-                </Layout>
-              }
-            />
-            <Route
-              path="/contributors"
-              element={
-                <Layout>
-                  <Contributors />
-                </Layout>
-              }
-            />
-            <Route
-              path="/blog"
-              element={
-                <Layout>
-                  <Blog />
-                </Layout>
-              }
-            />
-            <Route
-              path="/blog/tag/:tagSlug"
-              element={
-                <Layout>
-                  <Blog />
-                </Layout>
-              }
-            />
-            <Route
-              path="/blog/:slug"
-              element={
-                <Layout>
-                  <Blog />
-                </Layout>
-              }
-            />
-            <Route
-              path="/blog/author/:authorId"
-              element={
-                <Layout>
-                  <Blog />
-                </Layout>
-              }
-            />
-            <Route
-              path="/chains"
-              element={
-                <Layout>
-                  <ChainsPage />
-                </Layout>
-              }
-            />
-            <Route path="*" element={<NotFound />} />
+        <RouteErrorBoundary>
+          <Suspense fallback={<RouteLoading />}>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/faq" element={<LazyRoute loader={loadFaq} />} />
+              <Route path="/privacy" element={<LazyRoute loader={loadPrivacy} />} />
+              <Route path="/newsletter" element={<LazyRoute loader={loadNewsletter} />} />
+              <Route path="/use-cases" element={<LazyRoute loader={loadUseCases} />} />
+              <Route
+                path="/use-cases/calculator"
+                element={<LazyRoute loader={loadCostCalculatorPage} />}
+              />
+              <Route path="/roadmap" element={<LazyRoute loader={loadRoadmap} />} />
+              <Route path="/case-studies" element={<LazyRoute loader={loadCaseStudies} />} />
+              <Route path="/case-studies/:slug" element={<LazyRoute loader={loadCaseStudies} />} />
+              <Route
+                path="/ecosystem"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadEcosystem} />
+                  </Layout>
+                }
+              />
+              <Route path="/vitals" element={<LazyRoute loader={loadVitals} />} />
+              <Route
+                path="/security"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadSecurity} />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/threat-model"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadThreatModel} />
+                  </Layout>
+                }
+              />
+              {/* Status page route */}
+              <Route
+                path="/status"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadStatus} />
+                  </Layout>
+                }
+              />
+              {/* Wrap Stellar with Layout */}
+              <Route
+                path="/stellar"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadStellar} />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/careers"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadCareers} />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/grants"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadGrants} />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/about"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadAbout} />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/governance"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadGovernance} />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/contributors"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadContributors} />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/blog"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadBlog} />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/blog/tag/:tagSlug"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadBlog} />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/blog/:slug"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadBlog} />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/blog/author/:authorId"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadBlog} />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/chains"
+                element={
+                  <Layout>
+                    <LazyRoute loader={loadChainsPage} />
+                  </Layout>
+                }
+              />
+              <Route path="*" element={<LazyRoute loader={loadNotFound} />} />
 
-            {/* ── Locale-prefixed routes (/es/*, /pt/*) ────────────────────
+              {/* ── Locale-prefixed routes (/es/*, /pt/*) ────────────────────
                 These are the distinct, crawlable URLs referenced by hreflang
                 alternates. Each route activates the matching locale then
                 renders the same page component as its English counterpart.    */}
-            {(['es', 'pt'] as const).map((locale) => (
-              <>
-                <Route
-                  key={`${locale}-home`}
-                  path={`/${locale}`}
-                  element={
-                    <LocaleScope locale={locale}>
-                      <Home />
-                    </LocaleScope>
-                  }
-                />
-                <Route
-                  key={`${locale}-stellar`}
-                  path={`/${locale}/stellar`}
-                  element={
-                    <LocaleScope locale={locale}>
-                      <Layout>
-                        <Stellar />
-                      </Layout>
-                    </LocaleScope>
-                  }
-                />
-                <Route
-                  key={`${locale}-grants`}
-                  path={`/${locale}/grants`}
-                  element={
-                    <LocaleScope locale={locale}>
-                      <Layout>
-                        <Grants />
-                      </Layout>
-                    </LocaleScope>
-                  }
-                />
-                <Route
-                  key={`${locale}-blog`}
-                  path={`/${locale}/blog`}
-                  element={
-                    <LocaleScope locale={locale}>
-                      <Layout>
-                        <Blog />
-                      </Layout>
-                    </LocaleScope>
-                  }
-                />
-                <Route
-                  key={`${locale}-blog-slug`}
-                  path={`/${locale}/blog/:slug`}
-                  element={
-                    <LocaleScope locale={locale}>
-                      <Layout>
-                        <Blog />
-                      </Layout>
-                    </LocaleScope>
-                  }
-                />
-                <Route
-                  key={`${locale}-blog-author`}
-                  path={`/${locale}/blog/author/:authorId`}
-                  element={
-                    <LocaleScope locale={locale}>
-                      <Layout>
-                        <Blog />
-                      </Layout>
-                    </LocaleScope>
-                  }
-                />
-                <Route
-                  key={`${locale}-blog-tag`}
-                  path={`/${locale}/blog/tag/:tagSlug`}
-                  element={
-                    <LocaleScope locale={locale}>
-                      <Layout>
-                        <Blog />
-                      </Layout>
-                    </LocaleScope>
-                  }
-                />
-                <Route
-                  key={`${locale}-case-studies`}
-                  path={`/${locale}/case-studies`}
-                  element={
-                    <LocaleScope locale={locale}>
-                      <CaseStudies />
-                    </LocaleScope>
-                  }
-                />
-                <Route
-                  key={`${locale}-case-studies-slug`}
-                  path={`/${locale}/case-studies/:slug`}
-                  element={
-                    <LocaleScope locale={locale}>
-                      <CaseStudies />
-                    </LocaleScope>
-                  }
-                />
-              </>
-            ))}
-          </Routes>
-        </Suspense>
+              {(['es', 'pt'] as const).map((locale) => (
+                <>
+                  <Route
+                    key={`${locale}-home`}
+                    path={`/${locale}`}
+                    element={
+                      <LocaleScope locale={locale}>
+                        <Home />
+                      </LocaleScope>
+                    }
+                  />
+                  <Route
+                    key={`${locale}-stellar`}
+                    path={`/${locale}/stellar`}
+                    element={
+                      <LocaleScope locale={locale}>
+                        <Layout>
+                          <LazyRoute loader={loadStellar} />
+                        </Layout>
+                      </LocaleScope>
+                    }
+                  />
+                  <Route
+                    key={`${locale}-grants`}
+                    path={`/${locale}/grants`}
+                    element={
+                      <LocaleScope locale={locale}>
+                        <Layout>
+                          <LazyRoute loader={loadGrants} />
+                        </Layout>
+                      </LocaleScope>
+                    }
+                  />
+                  <Route
+                    key={`${locale}-blog`}
+                    path={`/${locale}/blog`}
+                    element={
+                      <LocaleScope locale={locale}>
+                        <Layout>
+                          <LazyRoute loader={loadBlog} />
+                        </Layout>
+                      </LocaleScope>
+                    }
+                  />
+                  <Route
+                    key={`${locale}-blog-slug`}
+                    path={`/${locale}/blog/:slug`}
+                    element={
+                      <LocaleScope locale={locale}>
+                        <Layout>
+                          <LazyRoute loader={loadBlog} />
+                        </Layout>
+                      </LocaleScope>
+                    }
+                  />
+                  <Route
+                    key={`${locale}-blog-author`}
+                    path={`/${locale}/blog/author/:authorId`}
+                    element={
+                      <LocaleScope locale={locale}>
+                        <Layout>
+                          <LazyRoute loader={loadBlog} />
+                        </Layout>
+                      </LocaleScope>
+                    }
+                  />
+                  <Route
+                    key={`${locale}-blog-tag`}
+                    path={`/${locale}/blog/tag/:tagSlug`}
+                    element={
+                      <LocaleScope locale={locale}>
+                        <Layout>
+                          <LazyRoute loader={loadBlog} />
+                        </Layout>
+                      </LocaleScope>
+                    }
+                  />
+                  <Route
+                    key={`${locale}-case-studies`}
+                    path={`/${locale}/case-studies`}
+                    element={
+                      <LocaleScope locale={locale}>
+                        <LazyRoute loader={loadCaseStudies} />
+                      </LocaleScope>
+                    }
+                  />
+                  <Route
+                    key={`${locale}-case-studies-slug`}
+                    path={`/${locale}/case-studies/:slug`}
+                    element={
+                      <LocaleScope locale={locale}>
+                        <LazyRoute loader={loadCaseStudies} />
+                      </LocaleScope>
+                    }
+                  />
+                </>
+              ))}
+            </Routes>
+          </Suspense>
+        </RouteErrorBoundary>
       </BrowserRouter>
     </ThemeProvider>
   );
